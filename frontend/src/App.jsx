@@ -10,7 +10,7 @@ function App() {
   const [statusMessage, setStatusMessage] = useState({ text: '', type: '' });
 
   // IMPORTANT: Replace this with your deployed backend URL later
-  const API_URL = 'http://localhost:3001';
+  const API_URL = 'https://sh3cpdtglk.execute-api.ap-south-1.amazonaws.com/prod/%7Bproxy+%7D';
 
   const cleanSummary = (rawSummary) => {
     // Remove common AI response phrases
