@@ -1,6 +1,6 @@
 # .github/workflows/deploy-s3-only.yml
 
-name: Deploy to S3 Only (Ultra Cheap)
+name: Deploy File
 
 on:
   push:
@@ -122,3 +122,4 @@ jobs:
       run: |
         echo "🚀 Frontend deployed!"
         echo "Website URL: http://$S3_BUCKET.s3-website-$AWS_REGION.amazonaws.com"
+
