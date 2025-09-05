@@ -131,3 +131,5 @@ jobs:
       run: |
         echo "🚀 Frontend deployed!"
         echo "Website URL: http://$S3_BUCKET.s3-website-$AWS_REGION.amazonaws.com"
+        echo "complete"
+
