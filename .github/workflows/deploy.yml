@@ -1,11 +1,8 @@
 # .github/workflows/deploy-s3-only.yml
-
 name: Deploy File
-
 on:
   push:
     branches: [ main ]
-
 env:
   AWS_REGION: ap-south-1
   NODE_VERSION: '18'
@@ -28,13 +25,13 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-
+        
     - name: Test Backend
       run: |
         cd backend
         npm ci
         echo "✅ Backend dependencies installed"
-
+        
     - name: Test Frontend Build
       run: |
         cd frontend
@@ -59,31 +56,42 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
-
+        
     - name: Login to Amazon ECR
       uses: aws-actions/amazon-ecr-login@v2
-
+      
     - name: Build and push Docker image
       run: |
         cd backend
         docker build -t $ECR_REPOSITORY:latest .
         docker push $ECR_REPOSITORY:latest
-
-    - name: Update Lambda function
+        
+    - name: Update Lambda function code
       run: |
+        echo "🚀 Updating Lambda function code..."
         aws lambda update-function-code \
           --function-name $LAMBDA_FUNCTION_NAME \
           --image-uri $ECR_REPOSITORY:latest
         
+    - name: Wait for Lambda function to be updated
+      run: |
+        echo "⏳ Waiting for Lambda function to be ready..."
+        aws lambda wait function-updated --function-name $LAMBDA_FUNCTION_NAME
+        echo "✅ Lambda function is ready for configuration updates"
+        
+    - name: Update Lambda function configuration
+      run: |
+        echo "⚙️ Updating Lambda function configuration..."
         aws lambda update-function-configuration \
           --function-name $LAMBDA_FUNCTION_NAME \
           --environment Variables="{GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},GMAIL_USER=${{ secrets.GMAIL_USER }},GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }},NODE_ENV=lambda}"
-
+        echo "✅ Lambda configuration updated successfully"
+        
     - name: Get API Gateway URL
       id: get-api-url
       run: |
-        # Get the API Gateway URL (you'll set this manually)
-        echo "url=https://your-api-id.execute-api.us-east-1.amazonaws.com" >> $GITHUB_OUTPUT
+        # Get the API Gateway URL (you'll need to replace this with your actual API Gateway URL)
+        echo "url=https://your-api-id.execute-api.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
   deploy-frontend:
     name: Deploy Frontend to S3
@@ -97,14 +105,14 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-
+        
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
-
+        
     - name: Build React app with API URL
       run: |
         cd frontend
@@ -112,14 +120,14 @@ jobs:
         # Set API URL for production
         echo "REACT_APP_API_URL=${{ needs.deploy-backend.outputs.api-url }}" > .env.production
         npm run build
-
+        
     - name: Deploy to S3
       run: |
         cd frontend
         aws s3 sync ./dist/ s3://$S3_BUCKET/ --delete
-
+        echo "✅ Frontend deployed to S3"
+        
     - name: Get S3 website URL
       run: |
         echo "🚀 Frontend deployed!"
         echo "Website URL: http://$S3_BUCKET.s3-website-$AWS_REGION.amazonaws.com"
-
