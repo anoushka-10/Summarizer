@@ -9,6 +9,16 @@ const app = express();
 // --- MIDDLEWARE ---
 app.use(cors()); // Allows requests from your frontend
 app.use(express.json({ limit: '10mb' })); // Allows parsing of JSON with larger payloads
+// index.js (before other routes)
+app.options('/*', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(200).send(); // IMPORTANT: respond with HTTP 200
+});
+let groq;
+let transporter;
+const PORT = process.env.PORT || 3001;
 
 async function initializeSecrets() {
     const secretsManager = new AWS.SecretsManager();
@@ -25,18 +35,10 @@ async function initializeSecrets() {
         auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD }
     });
 }
-const PORT = process.env.PORT || 3001;
-
-const groq = new Groq({ apiKey: GROQ_API_KEY });
-
+(async () => {
+  await initializeSecrets();
+})();
 // Gmail transporter setup
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: GMAIL_USER, // Your Gmail address
-        pass: GMAIL_APP_PASSWORD // Gmail App Password (not regular password)
-    }
-});
 
 
 
@@ -185,7 +187,7 @@ app.post('/api/send-email', async (req, res) => {
 
         // Send email using Gmail SMTP
         const mailOptions = {
-            from: `"AI Meeting Summarizer" <${process.env.GMAIL_USER}>`,
+            from: `"AI Meeting Summarizer" <${transporter.options.auth.user}>`,
             to: recipientList.join(', '),
             subject: emailSubject,
             html: emailHtml,
