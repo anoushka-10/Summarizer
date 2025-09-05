@@ -2,25 +2,37 @@ import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 import Groq from 'groq-sdk';
-import AWS from 'aws-sdk'
+import AWS from 'aws-sdk';
 import nodemailer from 'nodemailer';
 
 const app = express();
-// --- MIDDLEWARE ---
-app.use(cors()); // Allows requests from your frontend
-app.use(express.json({ limit: '10mb' })); // Allows parsing of JSON with larger payloads
-// index.js (before other routes)
-app.options('/*', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.status(200).send(); // IMPORTANT: respond with HTTP 200
-});
+const PORT = process.env.PORT || 3001;
+const FRONTEND_ORIGIN = 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com';
+
 let groq;
 let transporter;
-const PORT = process.env.PORT || 3001;
+let secretsLoaded = false;
 
+// --- MIDDLEWARE ---
+app.use(express.json({ limit: '10mb' }));
+
+// Handle CORS preflight for all routes
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', FRONTEND_ORIGIN);
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+// --- SECRETS INITIALIZATION ---
 async function initializeSecrets() {
+  if (secretsLoaded) return;
+  
+  try {
+    // Configure AWS region
+    AWS.config.update({ region: 'ap-south-1' });
+    
     const secretsManager = new AWS.SecretsManager();
     const secret = await secretsManager.getSecretValue({ SecretId: 'AI-summarizer' }).promise();
     const secrets = JSON.parse(secret.SecretString);
@@ -31,47 +43,51 @@ async function initializeSecrets() {
 
     groq = new Groq({ apiKey: GROQ_API_KEY });
     transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD }
+      service: 'gmail',
+      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD }
     });
+
+    secretsLoaded = true;
+    console.log('Secrets initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize secrets:', error);
+    throw error;
+  }
 }
-(async () => {
-  await initializeSecrets();
-})();
-// Gmail transporter setup
-
-
 
 // --- ROUTES ---
 
-// Health check route
+// Health check
 app.get('/api', (req, res) => {
-    res.json({ 
-        message: "AI Meeting Summarizer Backend is running!",
-        status: "healthy",
-        timestamp: new Date().toISOString()
-    });
+  res.json({ 
+    message: "AI Meeting Summarizer Backend is running!",
+    status: "healthy",
+    timestamp: new Date().toISOString()
+  });
 });
 
 // 1. SUMMARIZATION ENDPOINT
 app.post('/api/summarize', async (req, res) => {
-    const { transcript, prompt } = req.body;
-
-    // Enhanced validation
-    if (!transcript || !prompt) {
-        return res.status(400).json({ 
-            error: 'Both transcript and prompt are required.',
-            received: { transcript: !!transcript, prompt: !!prompt }
-        });
-    }
-
-    if (transcript.trim().length < 10) {
-        return res.status(400).json({ 
-            error: 'Transcript is too short. Please provide a meaningful meeting transcript.'
-        });
-    }
-
     try {
+        // Initialize secrets first - THIS WAS MISSING!
+        await initializeSecrets();
+        
+        const { transcript, prompt } = req.body;
+
+        // Enhanced validation
+        if (!transcript || !prompt) {
+            return res.status(400).json({ 
+                error: 'Both transcript and prompt are required.',
+                received: { transcript: !!transcript, prompt: !!prompt }
+            });
+        }
+
+        if (transcript.trim().length < 10) {
+            return res.status(400).json({ 
+                error: 'Transcript is too short. Please provide a meaningful meeting transcript.'
+            });
+        }
+
         const chatCompletion = await groq.chat.completions.create({
             messages: [
                 {
@@ -128,41 +144,44 @@ Provide the summary now:`
 
 // 2. EMAIL SHARING ENDPOINT (Gmail SMTP)
 app.post('/api/send-email', async (req, res) => {
-    const { summary, recipients, subject } = req.body;
-
-    // Enhanced validation
-    if (!summary || !recipients) {
-        return res.status(400).json({ 
-            error: 'Summary and recipients are required.',
-            received: { summary: !!summary, recipients: !!recipients }
-        });
-    }
-
-    if (summary.trim().length < 10) {
-        return res.status(400).json({ 
-            error: 'Summary is too short to send via email.'
-        });
-    }
-
-    // Enhanced email validation
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    const recipientList = Array.isArray(recipients) 
-        ? recipients.map(email => email.trim()).filter(email => emailRegex.test(email))
-        : recipients.split(',').map(email => email.trim()).filter(email => emailRegex.test(email));
-
-    if (recipientList.length === 0) {
-        return res.status(400).json({ 
-            error: 'No valid recipient email addresses provided. Please check the email format.'
-        });
-    }
-
-    if (recipientList.length > 10) {
-        return res.status(400).json({ 
-            error: 'Too many recipients. Maximum 10 recipients allowed per request.'
-        });
-    }
-
     try {
+        // Initialize secrets first - THIS WAS ALSO MISSING!
+        await initializeSecrets();
+        
+        const { summary, recipients, subject } = req.body;
+
+        // Enhanced validation
+        if (!summary || !recipients) {
+            return res.status(400).json({ 
+                error: 'Summary and recipients are required.',
+                received: { summary: !!summary, recipients: !!recipients }
+            });
+        }
+
+        if (summary.trim().length < 10) {
+            return res.status(400).json({ 
+                error: 'Summary is too short to send via email.'
+            });
+        }
+
+        // Enhanced email validation
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+        const recipientList = Array.isArray(recipients) 
+            ? recipients.map(email => email.trim()).filter(email => emailRegex.test(email))
+            : recipients.split(',').map(email => email.trim()).filter(email => emailRegex.test(email));
+
+        if (recipientList.length === 0) {
+            return res.status(400).json({ 
+                error: 'No valid recipient email addresses provided. Please check the email format.'
+            });
+        }
+
+        if (recipientList.length > 10) {
+            return res.status(400).json({ 
+                error: 'Too many recipients. Maximum 10 recipients allowed per request.'
+            });
+        }
+
         // Create a more professional email format
         const emailSubject = subject || 'Meeting Summary';
         const emailHtml = `
