@@ -1,8 +1,4 @@
-Yes, here is the corrected `lambda-handler.js` file.
 
-The main change is that the logic for determining the `Access-Control-Allow-Origin` header is now placed **inside** the `exports.handler` function, which prevents the Lambda from crashing on startup. This also ensures that the `OPTIONS` preflight request and the main request both return the correct CORS header.
-
-```javascript:corrected Lambda Handler:lambda-handler.js
 import Groq from 'groq-sdk';
 import nodemailer from 'nodemailer';
 
@@ -296,4 +292,3 @@ function handleHealthCheck(headers) {
     })
   };
 }
-```
