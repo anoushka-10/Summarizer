@@ -29,27 +29,35 @@ async function initializeSecrets() {
   if (secretsLoaded) return;
   
   try {
-    // Configure AWS region
-    AWS.config.update({ region: 'ap-south-1' });
+    console.log('Initializing from Lambda environment variables...');
     
-    const secretsManager = new AWS.SecretsManager();
-    const secret = await secretsManager.getSecretValue({ SecretId: 'AI-summarizer' }).promise();
-    const secrets = JSON.parse(secret.SecretString);
+    // Get from Lambda environment variables (NOT Secrets Manager!)
+    const GROQ_API_KEY = process.env.GROQ_API_KEY;
+    const GMAIL_USER = process.env.GMAIL_USER;
+    const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
 
-    const GROQ_API_KEY = secrets.GROQ_API_KEY;
-    const GMAIL_USER = secrets.GMAIL_USER;
-    const GMAIL_APP_PASSWORD = secrets.GMAIL_APP_PASSWORD;
+    if (!GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY not found in Lambda environment variables');
+    }
 
+    console.log('Creating Groq client...');
     groq = new Groq({ apiKey: GROQ_API_KEY });
-    transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD }
-    });
+
+    // Email is optional
+    if (GMAIL_USER && GMAIL_APP_PASSWORD) {
+      console.log('Creating email transporter...');
+      transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD }
+      });
+    } else {
+      console.log('Email credentials not found, email functionality will be disabled');
+    }
 
     secretsLoaded = true;
-    console.log('Secrets initialized successfully');
+    console.log('Environment variables loaded successfully');
   } catch (error) {
-    console.error('Failed to initialize secrets:', error);
+    console.error('Failed to initialize from environment variables:', error);
     throw error;
   }
 }
