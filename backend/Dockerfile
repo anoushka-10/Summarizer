@@ -1,12 +1,14 @@
-FROM node:18
-WORKDIR /app
+FROM public.ecr.aws/lambda/nodejs:18
 
+# Copy package files first (for better caching)
 COPY package*.json ./
 
-RUN npm install --production
+# Install production dependencies
+RUN npm ci --only=production
 
+# Copy your application code
 COPY . .
 
-EXPOSE 3001
-
-CMD ["npm","start"]
+# The CMD points to your handler function
+# Format: filename.functionName
+CMD ["lambda-handler.handler"]
