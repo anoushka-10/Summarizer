@@ -1,6 +1,7 @@
 // EMERGENCY HANDLER - NO IMPORTS AT ALL
-
-export const handler = async (event, context) => {
+exports.handler = async (event, context) => {
+  console.log('Lambda invoked:', JSON.stringify(event, null, 2));
+  
   const corsHeaders = {
     'Access-Control-Allow-Origin': 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
     'Access-Control-Allow-Headers': 'Content-Type',
@@ -8,21 +9,25 @@ export const handler = async (event, context) => {
     'Content-Type': 'application/json'
   };
 
-  // Handle OPTIONS
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({ message: 'CORS preflight OK' })
-    };
-  }
+  try {
+    // Handle OPTIONS
+    if (event.httpMethod === 'OPTIONS') {
+      console.log('Handling OPTIONS request');
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ message: 'CORS preflight OK' })
+      };
+    }
 
-  // Handle POST /api/summarize with native fetch
-  if (event.httpMethod === 'POST' && (event.path === '/api/summarize' || event.path.includes('summarize'))) {
-    try {
+    // Handle POST /api/summarize with native fetch
+    if (event.httpMethod === 'POST' && (event.path === '/api/summarize' || event.path.includes('summarize'))) {
+      console.log('Handling POST /api/summarize');
+      
       const GROQ_API_KEY = process.env.GROQ_API_KEY;
       
       if (!GROQ_API_KEY) {
+        console.error('GROQ_API_KEY not found');
         return {
           statusCode: 500,
           headers: corsHeaders,
@@ -32,8 +37,9 @@ export const handler = async (event, context) => {
 
       const body = JSON.parse(event.body || '{}');
       const { transcript, prompt } = body;
-
+      
       if (!transcript || !prompt) {
+        console.error('Missing transcript or prompt');
         return {
           statusCode: 400,
           headers: corsHeaders,
@@ -41,6 +47,8 @@ export const handler = async (event, context) => {
         };
       }
 
+      console.log('Making request to Groq API');
+      
       // Use native fetch API (available in Node.js 18+)
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
@@ -66,12 +74,14 @@ export const handler = async (event, context) => {
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Groq API error:', response.status, errorText);
         return {
           statusCode: 500,
           headers: corsHeaders,
           body: JSON.stringify({ 
             error: `Groq API error: ${response.status}`,
-            details: await response.text()
+            details: errorText
           })
         };
       }
@@ -85,42 +95,47 @@ export const handler = async (event, context) => {
         .replace(/^Summary:?\s*/i, '')
         .trim();
 
+      console.log('Summary generated successfully');
+      
       return {
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({ summary })
       };
+    }
 
-    } catch (error) {
+    // Health check
+    if (event.httpMethod === 'GET') {
+      console.log('Handling GET health check');
       return {
-        statusCode: 500,
+        statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({ 
-          error: 'Failed to generate summary',
-          details: error.message 
+          message: 'AI Meeting Summarizer is working!',
+          timestamp: new Date().toISOString(),
+          path: event.path,
+          method: event.httpMethod
         })
       };
     }
-  }
 
-  // Health check
-  if (event.httpMethod === 'GET') {
+    // Default
+    console.log('Route not found:', event.httpMethod, event.path);
     return {
-      statusCode: 200,
+      statusCode: 404,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: 'Route not found' })
+    };
+
+  } catch (error) {
+    console.error('Unhandled error:', error);
+    return {
+      statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({ 
-        message: 'AI Meeting Summarizer is working!',
-        timestamp: new Date().toISOString(),
-        path: event.path,
-        method: event.httpMethod
+        error: 'Internal server error',
+        details: error.message 
       })
     };
   }
-
-  // Default
-  return {
-    statusCode: 404,
-    headers: corsHeaders,
-    body: JSON.stringify({ error: 'Route not found' })
-  };
 };
