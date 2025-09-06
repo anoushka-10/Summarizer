@@ -8,53 +8,61 @@ const serverlessExpressInstance = serverlessExpress({
 });
 
 export const handler = async (event, context) => {
-  // HANDLE OPTIONS REQUESTS IMMEDIATELY - BEFORE EXPRESS APP
-  if (event.httpMethod === 'OPTIONS') {
+  console.log('=== LAMBDA START ===');
+  console.log('Event:', JSON.stringify(event, null, 2));
+  
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Max-Age': '3600',
+    'Content-Type': 'application/json'
+  };
+
+  // Extract HTTP method from different possible locations
+  const httpMethod = event.httpMethod || 
+                    event.requestContext?.http?.method || 
+                    event.requestContext?.httpMethod ||
+                    (event.requestContext && event.requestContext.method);
+                    
+  console.log('HTTP Method detected:', httpMethod);
+  
+  // Handle OPTIONS immediately
+  if (httpMethod === 'OPTIONS') {
+    console.log('Handling OPTIONS preflight request');
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Access-Control-Max-Age': '3600'
-      },
-      body: JSON.stringify({ message: 'CORS preflight handled' })
+      headers: corsHeaders,
+      body: JSON.stringify({ message: 'CORS preflight successful' })
     };
   }
-
-  // Set environment for Lambda
-  process.env.NODE_ENV = 'lambda';
   
+  // For non-OPTIONS requests, dynamically import and use serverless-express
   try {
-    // Handle non-OPTIONS requests with Express
+    console.log('Loading Express app for non-OPTIONS request...');
+    
+    const { default: serverlessExpress } = await import('@vendia/serverless-express');
+    const { default: app } = await import('./index.js');
+    
+    const serverlessExpressInstance = serverlessExpress({ app });
     const result = await serverlessExpressInstance(event, context);
     
-    // Ensure CORS headers are present
-    if (!result.headers) {
-      result.headers = {};
-    }
+    // Add CORS headers to the response
+    if (!result.headers) result.headers = {};
+    Object.assign(result.headers, corsHeaders);
     
-    if (!result.headers['Access-Control-Allow-Origin']) {
-      result.headers['Access-Control-Allow-Origin'] = 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com';
-      result.headers['Access-Control-Allow-Headers'] = 'Content-Type';
-      result.headers['Access-Control-Allow-Methods'] = 'OPTIONS,POST,GET';
-    }
-    
+    console.log('Express app handled request successfully');
     return result;
-  } catch (error) {
-    console.error('Lambda handler error:', error);
     
+  } catch (error) {
+    console.error('Error in Lambda handler:', error);
     return {
       statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'OPTIONS,POST,GET',
-        'Content-Type': 'application/json'
-      },
+      headers: corsHeaders,
       body: JSON.stringify({
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
+        stack: error.stack
       })
     };
   }
