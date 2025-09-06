@@ -1,11 +1,4 @@
-import serverlessExpress from '@vendia/serverless-express';
-import app from './index.js';
-
-// Create serverless Express handler
-const serverlessExpressInstance = serverlessExpress({ 
-  app,
-  binaryMimeTypes: []
-});
+// EMERGENCY HANDLER - NO IMPORTS AT ALL
 
 export const handler = async (event, context) => {
   const corsHeaders = {
@@ -15,23 +8,26 @@ export const handler = async (event, context) => {
     'Content-Type': 'application/json'
   };
 
-  // Handle OPTIONS immediately
+  // Handle OPTIONS
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ message: 'CORS OK' })
+      body: JSON.stringify({ message: 'CORS preflight OK' })
     };
   }
 
-  // Handle POST /api/summarize
-  if (event.httpMethod === 'POST' && event.path === '/api/summarize') {
+  // Handle POST /api/summarize with native fetch
+  if (event.httpMethod === 'POST' && (event.path === '/api/summarize' || event.path.includes('summarize'))) {
     try {
-      // Get Groq API key from environment
       const GROQ_API_KEY = process.env.GROQ_API_KEY;
       
       if (!GROQ_API_KEY) {
-        throw new Error('GROQ_API_KEY not found');
+        return {
+          statusCode: 500,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'GROQ_API_KEY not configured' })
+        };
       }
 
       const body = JSON.parse(event.body || '{}');
@@ -41,13 +37,11 @@ export const handler = async (event, context) => {
         return {
           statusCode: 400,
           headers: corsHeaders,
-          body: JSON.stringify({ 
-            error: 'Both transcript and prompt are required.' 
-          })
+          body: JSON.stringify({ error: 'Missing transcript or prompt' })
         };
       }
 
-      // Simple Groq API call without the heavy Express setup
+      // Use native fetch API (available in Node.js 18+)
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -59,7 +53,7 @@ export const handler = async (event, context) => {
           messages: [
             {
               role: 'system',
-              content: 'You are a professional meeting summarizer. Provide clean, direct summaries.'
+              content: 'You are a professional meeting summarizer. Provide clean, direct summaries without introductory phrases.'
             },
             {
               role: 'user',
@@ -72,11 +66,24 @@ export const handler = async (event, context) => {
       });
 
       if (!response.ok) {
-        throw new Error(`Groq API error: ${response.status}`);
+        return {
+          statusCode: 500,
+          headers: corsHeaders,
+          body: JSON.stringify({ 
+            error: `Groq API error: ${response.status}`,
+            details: await response.text()
+          })
+        };
       }
 
       const data = await response.json();
-      const summary = data.choices[0]?.message?.content || 'Unable to generate summary.';
+      let summary = data.choices[0]?.message?.content || 'Unable to generate summary.';
+
+      // Clean up summary
+      summary = summary
+        .replace(/^(Here\s+(is|'s)\s+a?\s*summary.*?:?\s*)/i, '')
+        .replace(/^Summary:?\s*/i, '')
+        .trim();
 
       return {
         statusCode: 200,
@@ -97,21 +104,23 @@ export const handler = async (event, context) => {
   }
 
   // Health check
-  if (event.httpMethod === 'GET' && event.path === '/api') {
+  if (event.httpMethod === 'GET') {
     return {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({ 
-        message: 'AI Meeting Summarizer is running!',
-        status: 'healthy' 
+        message: 'AI Meeting Summarizer is working!',
+        timestamp: new Date().toISOString(),
+        path: event.path,
+        method: event.httpMethod
       })
     };
   }
 
-  // Default response
+  // Default
   return {
     statusCode: 404,
     headers: corsHeaders,
-    body: JSON.stringify({ error: 'Not found' })
+    body: JSON.stringify({ error: 'Route not found' })
   };
 };
