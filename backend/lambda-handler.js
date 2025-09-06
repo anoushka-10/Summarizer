@@ -1,3 +1,8 @@
+Yes, here is the corrected `lambda-handler.js` file.
+
+The main change is that the logic for determining the `Access-Control-Allow-Origin` header is now placed **inside** the `exports.handler` function, which prevents the Lambda from crashing on startup. This also ensures that the `OPTIONS` preflight request and the main request both return the correct CORS header.
+
+```javascript:corrected Lambda Handler:lambda-handler.js
 import Groq from 'groq-sdk';
 import nodemailer from 'nodemailer';
 
@@ -45,12 +50,25 @@ async function initializeSecrets() {
 
 // Main Lambda handler function
 exports.handler = async (event) => {
+  // All request-specific logic and variables MUST be inside the handler
+  const allowedOrigins = [
+    'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
+    'http://meeting-ai-frontend-anoushka.s3-website-ap-south-1.amazonaws.com'
+  ];
+
+  const requestOrigin = event.headers.origin || event.headers.Origin;
+
+  let originHeader = '*'; // Default to a wildcard for safety
+  if (allowedOrigins.includes(requestOrigin)) {
+    originHeader = requestOrigin;
+  }
+  
   // Always log the incoming event first for debugging
   console.log('Lambda invoked with event:', JSON.stringify(event, null, 2));
 
   // Define CORS headers to be used on all responses
   const corsHeaders = {
-    'Access-Control-Allow-Origin': 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
+    'Access-Control-Allow-Origin': originHeader,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Content-Type': 'application/json'
@@ -62,11 +80,11 @@ exports.handler = async (event) => {
     return {
       statusCode: 200,
       headers: {
-        'Access-Control-Allow-Origin': 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
+        // Use the same dynamic origin logic for the OPTIONS response
+        'Access-Control-Allow-Origin': originHeader,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Max-Age': '86400', // Cache preflight for 24 hours
-        'Content-Type': 'application/json'
       },
       body: ''
     };
@@ -209,8 +227,6 @@ async function handleSendEmail(requestBody, headers) {
       };
     }
     
-    // ... (your email validation and sending logic from index.js)
-    
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     const recipientList = Array.isArray(recipients) ? recipients.map(email => email.trim()).filter(email => emailRegex.test(email)) : recipients.split(',').map(email => email.trim()).filter(email => emailRegex.test(email));
 
@@ -280,3 +296,4 @@ function handleHealthCheck(headers) {
     })
   };
 }
+```
