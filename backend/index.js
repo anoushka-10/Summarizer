@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 import Groq from 'groq-sdk';
-import AWS from 'aws-sdk';
 import nodemailer from 'nodemailer';
 
 const app = express();
