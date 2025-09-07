@@ -10,7 +10,7 @@ function App() {
   const [statusMessage, setStatusMessage] = useState({ text: '', type: '' });
 
   // IMPORTANT: Replace this with your deployed backend URL later
-  const API_URL = 'https://sh3cpdtglk.execute-api.ap-south-1.amazonaws.com/prod';
+  const API_URL = 'https://pc74dlgry6.execute-api.ap-south-1.amazonaws.com/prod';
 
   const cleanSummary = (rawSummary) => {
     // Remove common AI response phrases
