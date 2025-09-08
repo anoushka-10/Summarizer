@@ -1,4 +1,3 @@
-
 import Groq from 'groq-sdk';
 import nodemailer from 'nodemailer';
 
@@ -46,7 +45,6 @@ async function initializeSecrets() {
 
 // Main Lambda handler function
 exports.handler = async (event) => {
-  // All request-specific logic and variables MUST be inside the handler
   const allowedOrigins = [
     'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
     'http://meeting-ai-frontend-anoushka.s3-website-ap-south-1.amazonaws.com'
@@ -54,15 +52,15 @@ exports.handler = async (event) => {
 
   const requestOrigin = event.headers.origin || event.headers.Origin;
 
-  let originHeader = '*'; // Default to a wildcard for safety
+  let originHeader = ''; 
   if (allowedOrigins.includes(requestOrigin)) {
     originHeader = requestOrigin;
+  } else {
+    originHeader = 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com';
   }
-  
-  // Always log the incoming event first for debugging
+
   console.log('Lambda invoked with event:', JSON.stringify(event, null, 2));
 
-  // Define CORS headers to be used on all responses
   const corsHeaders = {
     'Access-Control-Allow-Origin': originHeader,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -73,24 +71,22 @@ exports.handler = async (event) => {
   // Step 1: Handle OPTIONS preflight request immediately
   if (event.httpMethod === 'OPTIONS') {
     console.log('Handling OPTIONS preflight request');
+    const optionsHeaders = {
+      'Access-Control-Allow-Origin': 'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+      'Access-Control-Max-Age': '86400', // Cache preflight for 24 hours
+    };
     return {
       statusCode: 200,
-      headers: {
-        // Use the same dynamic origin logic for the OPTIONS response
-        'Access-Control-Allow-Origin': originHeader,
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Max-Age': '86400', // Cache preflight for 24 hours
-      },
+      headers: optionsHeaders,
       body: ''
     };
   }
 
-  // Step 2: Initialize secrets and clients (only runs once per container)
   try {
     await initializeSecrets();
   } catch (error) {
-    // If initialization fails, return a server error
     return {
       statusCode: 500,
       headers: corsHeaders,
@@ -98,7 +94,6 @@ exports.handler = async (event) => {
     };
   }
 
-  // Step 3: Parse the request body for POST requests
   let requestBody = {};
   if (event.httpMethod === 'POST' && event.body) {
     try {
@@ -113,7 +108,6 @@ exports.handler = async (event) => {
     }
   }
 
-  // Step 4: Route the request based on the path and method
   const path = event.path.endsWith('/') ? event.path.slice(0, -1) : event.path;
   const endpoint = path.split('/').pop();
 
@@ -122,7 +116,7 @@ exports.handler = async (event) => {
       return handleSummarize(requestBody, corsHeaders);
     case 'send-email':
       return handleSendEmail(requestBody, corsHeaders);
-    case 'api': // Health check
+    case 'api':
       return handleHealthCheck(corsHeaders);
     default:
       return {
@@ -133,107 +127,44 @@ exports.handler = async (event) => {
   }
 };
 
-// --- HANDLER FUNCTIONS ---
-
 async function handleSummarize(requestBody, headers) {
   try {
     const { transcript, prompt } = requestBody;
-
     if (!transcript || !prompt) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Both transcript and prompt are required.' })
-      };
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Both transcript and prompt are required.' }) };
     }
-    
     if (transcript.trim().length < 10) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Transcript is too short. Please provide a meaningful meeting transcript.' })
-      };
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Transcript is too short. Please provide a meaningful meeting transcript.' }) };
     }
-
     const chatCompletion = await groqClient.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: `You are a professional meeting summarizer. Your task is to create clean, direct summaries without any introductory phrases, explanations, or closing remarks.
-IMPORTANT RULES:
-- Start directly with the summary content
-- Do NOT begin with phrases like "Here is a summary", "Here's a summary", "Summary:", etc.
-- Do NOT end with phrases like "Let me know if you need anything", "I hope this helps", etc.
-- Focus only on the meeting content
-- Be concise and professional
-- Follow the user's formatting instructions exactly`
-        },
-        {
-          role: 'user',
-          content: `Meeting transcript: ${transcript}\n\nFormatting instruction: ${prompt}\n\nProvide the summary now:`
-        }
-      ],
+      messages: [{ role: 'system', content: `You are a professional meeting summarizer. Your task is to create clean, direct summaries without any introductory phrases, explanations, or closing remarks. IMPORTANT RULES: - Start directly with the summary content - Do NOT begin with phrases like "Here is a summary", "Here's a summary", "Summary:", etc. - Do NOT end with phrases like "Let me know if you need anything", "I hope this helps", etc. - Focus only on the meeting content - Be concise and professional - Follow the user's formatting instructions exactly` }, { role: 'user', content: `Meeting transcript: ${transcript}\n\nFormatting instruction: ${prompt}\n\nProvide the summary now:` }],
       model: 'llama-3.1-8b-instant',
-      temperature: 0.3,
-      max_tokens: 2000,
+      temperature: 0.3, max_tokens: 2000,
     });
-
     let summary = chatCompletion.choices[0]?.message?.content || 'Unable to generate summary.';
-    
-    // Additional cleanup
-    summary = summary
-      .replace(/^(Here\s+(is|'s)\s+a?\s*summary.*?:?\s*)/i, '')
-      .replace(/^Summary:?\s*/i, '')
-      .replace(/(Let me know|Feel free|I hope this helps|Please let me know).*$/i, '')
-      .trim();
-
+    summary = summary.replace(/^(Here\s+(is|'s)\s+a?\s*summary.*?:?\s*)/i, '').replace(/^Summary:?\s*/i, '').replace(/(Let me know|Feel free|I hope this helps|Please let me know).*$/i, '').trim();
     console.log('Summary generated successfully.');
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ summary })
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ summary }) };
   } catch (error) {
     console.error('Error in handleSummarize:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Failed to generate summary.' })
-    };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Failed to generate summary.' }) };
   }
 }
 
 async function handleSendEmail(requestBody, headers) {
   try {
     if (!emailTransporter) {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Email service not configured.' })
-      };
+      return { statusCode: 500, headers, body: JSON.stringify({ error: 'Email service not configured.' }) };
     }
-
     const { summary, recipients, subject } = requestBody;
-
     if (!summary || !recipients) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Summary and recipients are required.' })
-      };
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Summary and recipients are required.' }) };
     }
-    
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     const recipientList = Array.isArray(recipients) ? recipients.map(email => email.trim()).filter(email => emailRegex.test(email)) : recipients.split(',').map(email => email.trim()).filter(email => emailRegex.test(email));
-
     if (recipientList.length === 0) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'No valid recipient email addresses provided.' })
-      };
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'No valid recipient email addresses provided.' }) };
     }
-
     const emailSubject = subject || 'Meeting Summary';
     const emailHtml = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
@@ -254,29 +185,13 @@ async function handleSendEmail(requestBody, headers) {
           </div>
       </div>
     `;
-
-    const mailOptions = {
-      from: `"AI Meeting Summarizer" <${process.env.GMAIL_USER}>`,
-      to: recipientList.join(', '),
-      subject: emailSubject,
-      html: emailHtml
-    };
-    
+    const mailOptions = { from: `"AI Meeting Summarizer" <${process.env.GMAIL_USER}>`, to: recipientList.join(', '), subject: emailSubject, html: emailHtml };
     await emailTransporter.sendMail(mailOptions);
     console.log('Email sent successfully.');
-    
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ message: 'Email sent successfully.' })
-    };
+    return { statusCode: 200, headers, body: JSON.stringify({ message: 'Email sent successfully.' }) };
   } catch (error) {
     console.error('Error in handleSendEmail:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Failed to send email.' })
-    };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Failed to send email.' }) };
   }
 }
 
@@ -285,10 +200,6 @@ function handleHealthCheck(headers) {
   return {
     statusCode: 200,
     headers,
-    body: JSON.stringify({
-      message: 'AI Meeting Summarizer Backend is running!',
-      status: 'healthy',
-      timestamp: new Date().toISOString()
-    })
+    body: JSON.stringify({ message: 'AI Meeting Summarizer Backend is running!', status: 'healthy', timestamp: new Date().toISOString() })
   };
 }
