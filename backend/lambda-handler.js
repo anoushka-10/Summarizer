@@ -44,7 +44,7 @@ async function initializeSecrets() {
 }
 
 // Main Lambda handler function
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const allowedOrigins = [
     'http://meeting-ai-frontend-anoushka.s3-website.ap-south-1.amazonaws.com',
     'http://meeting-ai-frontend-anoushka.s3-website-ap-south-1.amazonaws.com'
